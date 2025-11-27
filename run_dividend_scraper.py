@@ -31,7 +31,7 @@ def run():
     ticker_list = krx_df["단축코드"].tolist()
 
     # ===== 테스트용: 앞 20종목만 수집 (전체 수집 시 주석 처리) =====
-    # ticker_list = ticker_list[:20] 
+    ticker_list = ticker_list[:20] 
 
     # ===== 실제 수집용(전체종목) =====
     total_count = len(ticker_list)
