@@ -1,5 +1,7 @@
 # src/scraper.py
 import requests
+import time
+import pandas as pd
 from config import NAVER_STOCK_API_URL, NAVER_ETF_ANALYSIS_URL, HEADERS
 
 def fetch_etf_basic(item_code):
@@ -10,7 +12,7 @@ def fetch_etf_basic(item_code):
         response.raise_for_status()
         return parse_etf_basic(response.json())
     except Exception as e:
-        print(f"[ERROR] {item_code} 기본 정보 실패: {e}")
+        # print(f"[ERROR] {item_code} 기본 정보 실패: {e}")
         return None
 
 def fetch_etf_analysis(item_code):
@@ -21,19 +23,16 @@ def fetch_etf_analysis(item_code):
         response.raise_for_status()
         return parse_etf_analysis(response.json())
     except Exception as e:
-        print(f"[ERROR] {item_code} 분석 정보 실패: {e}")
+        # print(f"[ERROR] {item_code} 분석 정보 실패: {e}")
         return None
 
 def _parse_weight_list(data_list, top_n=3):
     """
-    [내부함수] 비중 리스트를 받아 상위 N개를 문자열로 변환합니다.
-    입력: [{'detailTypeCode': 'IT', 'weight': 34.18}, ...]
-    출력: "IT(34.18%), FINANCIALS(12.64%)..."
+    비중 리스트를 받아 상위 N개를 문자열로 변환합니다.
     """
     if not data_list:
         return None
     
-    # 비중 기준 내림차순 정렬
     sorted_data = sorted(data_list, key=lambda x: x.get('weight', 0), reverse=True)
     
     items = []
@@ -71,31 +70,26 @@ def parse_etf_analysis(json_data):
     dividend_info = json_data.get("dividend", {})
     inflow_info = json_data.get("cumulativeNetInflowList", {})
     
-    # 상위 구성종목 이름 추출
     top_assets = json_data.get("etfTop10MajorConstituentAssets", [])
     top_5_names = [item['itemName'] for item in top_assets[:5]]
     
     return {
-        # --- 가치 및 비용 ---
         "nav": json_data.get("nav"),
         "market_cap": json_data.get("marketValue"),
         "fee": json_data.get("totalFee"),
         "distribution_yield": dividend_info.get("dividendYieldTtm"),
         "deviation_rate": json_data.get("deviationRate"),
         
-        # --- 운용 및 성과 ---
-        "issuer": json_data.get("issuerName"), # 운용사
-        "listed_date": _format_date(json_data.get("listedDate")), # 상장일
+        "issuer": json_data.get("issuerName"),
+        "listed_date": _format_date(json_data.get("listedDate")),
         "tracking_index": json_data.get("etfBaseIndex"),
         "tracking_error": json_data.get("chaseErrorRate"),
         "inflow_1m": inflow_info.get("cumulativeNetInflow1m"),
         
-        # --- 수익률 ---
         "return_1m": returns.get("returnRate1m"),
         "return_6m": returns.get("returnRate6m"),
         "return_1y": returns.get("returnRate1y"),
         
-        # --- 구성 정보 (리스트 변환) ---
         "top_holdings": ", ".join(top_5_names),
         "sector_weight": _parse_weight_list(json_data.get("sectorPortfolioList"), top_n=3),
         "country_weight": _parse_weight_list(json_data.get("countryPortfolioList"), top_n=3),
