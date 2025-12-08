@@ -1,13 +1,11 @@
 # run_daily_krx.py
 import os
-import time
 import pandas as pd
 from datetime import datetime
-from src import loader 
-from dotenv import load_dotenv # .env 파일을 로드하기 위한 라이브러리
+from src import loader, db 
+from dotenv import load_dotenv
 
-# .env 파일에서 환경 변수를 로드합니다. (최상단에 위치해야 함)
-load_dotenv() 
+load_dotenv()
 
 def run():
     print("=== 일간 KRX ETF 데이터 수집기 시작 ===")
@@ -16,7 +14,7 @@ def run():
     output_dir = "data/krx_daily"
     os.makedirs(output_dir, exist_ok=True)
     
-    # 2. KRX API에서 일간 데이터 로드 (loader.py에 소급 로직 포함)
+    # 2. KRX API 로드
     try:
         krx_daily_df = loader.load_latest_krx_data()
     except Exception as e:
@@ -24,19 +22,39 @@ def run():
         return
 
     if krx_daily_df.empty:
-        print("[WARN] KRX API에서 데이터를 가져오지 못했습니다. 작업을 종료합니다.")
+        print("[WARN] 가져온 데이터가 없습니다.")
         return
 
-    # 3. 데이터 저장
+    # 3. CSV 저장 (백업용)
     today = datetime.now().strftime("%Y%m%d")
     output_path = os.path.join(output_dir, f"krx_data_{today}.csv")
-    
     krx_daily_df.to_csv(output_path, index=False, encoding="utf-8-sig")
-    
-    print(f"\n[SAVE] 일간 KRX 데이터 스냅샷이 저장되었습니다.")
-    print(f"저장 경로: {output_path}")
-    print(f"총 {len(krx_daily_df)}개 종목 수집 완료.")
+    print(f"[SAVE] CSV 저장 완료: {output_path}")
 
+    # 4. DB 적재
+    print("\n[DB] Cloud SQL 적재 시작...")
+    
+    # DB 컬럼명으로 매핑
+    rename_map = {
+        '기준일자': 'std_date',
+        '단축코드': 'ticker',
+        '한글종목명': 'name',
+        '종가_KRX': 'close_price',
+        # '순자산가치(NAV)': 'nav',
+        '시가총액': 'market_cap',
+        '기초지수_지수명': 'index_name'
+    }
+    db_df = krx_daily_df.rename(columns=rename_map)
+
+    # 날짜 포맷 변환 (YYYYMMDD -> YYYY-MM-DD)
+    db_df['std_date'] = pd.to_datetime(db_df['std_date'].astype(str), format='%Y%m%d')
+
+    # 필요한 컬럼만 필터링
+    valid_cols = ['std_date', 'ticker', 'name', 'close_price', 'nav', 'market_cap', 'index_name']
+    final_df = db_df[[c for c in valid_cols if c in db_df.columns]].copy()
+
+    # DB Insert
+    db.insert_dataframe(final_df, 'etf_daily_price')
 
 if __name__ == "__main__":
     run()

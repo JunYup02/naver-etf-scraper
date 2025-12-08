@@ -1,86 +1,131 @@
-# 📈 Naver ETF Scraper (Full Version)
+# 📊 ETF Data Pipeline & Dashboard Backend
 
-KRX(한국거래소)의 ETF 기본 정보(CSV)와 네이버 금융(Naver Finance)의 상세 운용 정보를 결합하여, ETF 투자 분석을 위한 통합 데이터베이스를 구축하는 Python 스크래핑 도구입니다.
+**국내 상장 ETF(Exchange Traded Fund)의 시세, 구성 종목(포트폴리오), 배당 정보를 수집하여 Google Cloud SQL(PostgreSQL)에 적재하는 데이터 파이프라인**입니다.
+이 프로젝트는 **KRX 정보데이터시스템**과 **네이버 금융** 데이터를 크롤링하여 수집하며, 대시보드 시각화에 최적화된 형태(전처리 및 컬럼 분해)로 가공하여 DB에 저장합니다.
 
-## 🌟 주요 기능
+## 🚀 Key Features
 
-1.  **자동화된 데이터 로드**: `data/input/` 폴더 내의 가장 최신 KRX CSV 파일을 자동으로 인식하여 로드합니다.
-2.  **통합 데이터 수집**:
-    * **기본 시세**: 현재가, 등락률, 시가총액
-    * **운용 분석**: NAV, 괴리율, 추적오차율, 총보수, 분배율(배당률)
-    * **포트폴리오**: 운용사, 상장일, 기초지수, 상위 구성종목(Top 10)
-    * **비중 분석**: 국가별 비중(예: 미국 90%), 섹터별 비중(예: IT 30%)
-3.  **데이터 병합 및 저장**: KRX의 표준코드 정보와 네이버의 실시간 정보를 병합하여 날짜가 포함된 CSV 파일로 저장합니다.
+  * **일간 시세 수집 (Daily Price):** KRX API를 활용하여 전 종목의 종가, 시가총액, 거래량을 매일 수집합니다.
+  * **상세 분석 정보 수집 (Weekly Analysis):**
+      * 네이버 금융에서 보수(Fee), 수익률, 자금 유입(Fund Flow) 등을 크롤링합니다.
+      * **데이터 전처리:** 텍스트로 된 수치("1조 2천억")를 `float`형으로 자동 변환합니다.
+      * **포트폴리오 분해:** `섹터 비중`과 `국가 비중` 텍스트 데이터를 분석하여 **Top 1\~3위** 컬럼(`sector_1`, `country_1` 등)으로 자동 분해 및 적재합니다.
+  * **배당 분석 (Dividend Analysis):**
+      * **이력(History):** 과거 배당 지급 내역을 수집하고 중복을 방지하여 적재합니다.
+      * **분석(Metrics):** 수집된 데이터를 바탕으로 **배당 주기(월/분기)** 및 **YoY 성장률**, **연간 배당 합계**를 자동으로 계산하여 별도 테이블로 관리합니다.
+  * **Cloud SQL 연동:** 수집된 모든 데이터는 Google Cloud SQL (PostgreSQL)에 정규화된 테이블로 저장됩니다.
+  * **진행 상황 모니터링:** `tqdm`을 도입하여 수집 진행률과 남은 시간을 실시간으로 추적합니다.
 
-## 📁 프로젝트 구조
+## 🛠 Tech Stack
+
+  * **Language:** Python 3.10
+  * **Data Processing:** Pandas, NumPy, Regular Expressions (Regex)
+  * **Database:** Google Cloud SQL (PostgreSQL), SQLAlchemy, Psycopg2
+  * **Crawling:** Requests (KRX API & Naver Finance)
+  * **Scheduling:** Linux Crontab (macOS environment)
+
+## 📂 Project Structure
 
 ```bash
-naver-etf-scraper/
-├── .gitignore              # Git 제외 파일 설정
-├── README.md               # 프로젝트 설명서
-├── requirements.txt        # 의존성 패키지 목록
-├── config.py               # API URL 및 헤더 설정
-├── main.py                 # 프로그램 실행 진입점 (Entry Point)
-├── src/                    # 핵심 소스 코드
-│   ├── __init__.py
-│   ├── loader.py           # KRX CSV 파일 로드 및 전처리
-│   └── scraper.py          # Naver API 크롤링 로직
-└── data/                   # 데이터 저장소 (Git에는 구조만 올라감)
-    ├── input/              # KRX 기본정보 CSV 파일 위치 (사용자가 직접 넣어야 함)
-    └── output/             # 최종 결과 파일 저장 위치 (자동 생성)
+├── config.py                 # API 키 및 URL 설정
+├── requirements.txt          # 의존성 패키지 목록
+├── src/
+│   ├── db.py                 # PostgreSQL 연결 및 데이터 적재 모듈
+│   ├── loader.py             # KRX 데이터 로드 모듈
+│   ├── scraper.py            # 네이버 금융 상세 크롤링 모듈
+│   ├── dividend_scraper.py   # 배당금 내역 크롤링 모듈
+│   ├── processor.py          # [전처리] 숫자 변환 및 포트폴리오 비중 분해
+│   └── analyzer.py           # [분석] 배당 성장률 및 주기 계산
+├── run_daily_krx.py          # [Exec] 일간 시세 수집 스크립트
+├── run_weekly_analysis.py    # [Exec] 주간 상세 분석 및 Top3 분해 적재
+└── run_dividend_scraper.py   # [Exec] 배당 정보 수집 및 분석 적재
+└── data/                     # CSV 백업 파일 저장소
+    ├── krx_daily/
+    └── output/
 ```
 
-## 🚀 설치 및 실행 방법 (Anaconda 환경)
-1. 환경 설정
-Anaconda 프롬프트(Anaconda Prompt) 또는 터미널을 열고 아래 명령어를 순서대로 입력하세요.
+## 💾 Database Schema
+
+데이터는 총 4개의 테이블로 구성되어 있습니다.
+
+### 1\. `etf_daily_price` (일간 시세)
+
+  * **Update:** 매일 18:00
+  * **Contents:** KRX 기준 종가, 시가총액, 기초지수명 등
+  * **Key Columns:** `std_date`, `ticker`, `close_price`, `market_cap`
+
+### 2\. `etf_analysis` (상세 분석 & 포트폴리오)
+
+  * **Update:** 매주 토요일 09:00
+  * **Contents:** 네이버 금융 기반 상세 지표 및 포트폴리오 구성
+  * **Key Columns:**
+      * **지표:** `nav`, `price`, `fee`, `inflow_1m` (자금유입), `return_1m`
+      * **정보:** `issuer` (운용사), `listed_date` (상장일)
+      * **포트폴리오 (분해됨):** `sector_1`\~`sector_3` (섹터 1\~3위), `country_1`\~`country_3` (국가 1\~3위) 및 각 비중(%)
+
+### 3\. `etf_dividends` (배당 이력)
+
+  * **Update:** 매주 토요일 10:00
+  * **Contents:** 개별 분배금 지급 내역 (Raw Data)
+  * **Key Columns:** `ex_date` (배당락일), `amount` (분배금), `ticker`
+
+### 4\. `etf_dividend_analysis` (배당 요약)
+
+  * **Update:** 매주 토요일 10:00 (Calculated)
+  * **Contents:** 종목별 배당 성향 분석 요약
+  * **Key Columns:** `period` (월/분기/연배당 구분), `dividend_sum_1y` (연간 합계), `growth_rate_yoy` (배당 성장률)
+
+## ⚙️ Installation & Setup
+
+1.  **Repository Clone**
+
+    ```bash
+    git clone https://github.com/your-username/naver-etf-scraper.git
+    cd naver-etf-scraper
+    ```
+
+2.  **Install Dependencies**
+
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+3.  **Environment Variables (.env)**
+    프로젝트 루트에 `.env` 파일을 생성하고 아래 정보를 입력하세요.
+
+    ```ini
+    KRX_API_KEY=your_issued_api_key
+    DB_HOST=34.xx.xx.xx
+    DB_PORT=5432
+    DB_NAME=postgres
+    DB_USER=your_db_username
+    DB_PASSWORD=your_db_password
+    ```
+
+4.  **Run Scripts**
+
+    ```bash
+    # 1. 일간 시세 수집 (가장 먼저 실행되어야 함)
+    python run_daily_krx.py
+
+    # 2. 주간 상세 분석 (Top 3 비중 분해 포함)
+    python run_weekly_analysis.py
+
+    # 3. 배당 정보 수집 및 분석
+    python run_dividend_scraper.py
+    ```
+
+## ⏰ Automation (Crontab)
+
+macOS/Linux 환경에서 `crontab -e`를 통해 자동화를 설정합니다.
+
 ```bash
-# 1. 저장소 클론 (또는 폴더로 이동)
-cd path/to/naver-etf-scraper
+# 1. 일간 KRX 데이터 (매일 18:00)
+0 18 * * * cd /path/to/project && /path/to/venv/bin/python run_daily_krx.py >> logs/daily.log 2>&1
 
-# 2. Conda 가상환경 생성 (Python 3.11 권장)
-conda create -n etf-scraper python=3.11
+# 2. 주간 상세 분석 (매주 토요일 09:00)
+0 9 * * 6 cd /path/to/project && /path/to/venv/bin/python run_weekly_analysis.py >> logs/weekly.log 2>&1
 
-# 3. 가상환경 활성화
-conda activate etf-scraper
-
-# 4. 필수 라이브러리 설치
-pip install -r requirements.txt
+# 3. 배당 정보 수집 (매주 토요일 10:00)
+0 10 * * 6 cd /path/to/project && /path/to/venv/bin/python run_dividend_scraper.py >> logs/dividend.log 2>&1
 ```
-
-2. 데이터 준비 (필수!)
-KRX 정보데이터시스템 등에서 다운로드한 ETF 전종목 기본정보 CSV 파일을 data/input/ 폴더에 넣어야 합니다.프로그램이 최신 파일을 인식할 수 있도록 파일명 규칙을 꼭 지켜주세요.
-- 파일 위치: data/input/
-- 파일명 형식: krx_etf_basic_YYYYMMDD.
-    - csv예시: krx_etf_basic_20251124.csv
-
-3. 프로그램 실행가상환경이 활성화된 상태((etf-scraper))에서 실행합니다.
-```bash
-python main.py
-```
-
-4. 결과 확인
-실행이 완료되면 data/output/ 폴더에 오늘 날짜가 포함된 결과 파일이 생성됩니다.
-- 출력 파일명: etf_full_data_YYYYMMDD.csv
-
-## 📊 수집 데이터 명세
-생성되는 CSV 파일에는 다음 컬럼들이 포함됩니다.| 컬럼명 | 설명 | 비고 |
-| :--- | :--- | :--- |
-| **종목코드** | ETF 단축코드 (6자리) | Key |
-| **종목명** | ETF 한글 종목명 | |
-| **현재가** | 현재 거래 가격 | 실시간/종가 |
-| **등락률** | 전일 대비 등락률 (%) | |
-| **NAV** | 순자산가치 (iNAV) | |
-| **괴리율(%)** | (시장가 - NAV) 차이 | 0에 가까울수록 좋음 |
-| **추적오차율(%)** | 기초지수 추종 정밀도 | 낮을수록 운용 잘함 |
-| **보수(%)** | 총 운용 보수 (TER) | 낮을수록 비용 절감 |
-| **분배율(%)** | 연간 분배금 수익률 (Yield) | 배당투자 시 중요 |
-| **운용사** | 자산운용사 명칭 | |
-| **상장일** | ETF 상장일자 | YYYY-MM-DD |
-| **1개월자금유입** | 최근 1개월 순유입액 | 시장 인기 척도 |
-| **국가비중** | 상위 투자 국가 및 비중 | 예: US(94%) |
-| **섹터비중** | 상위 투자 산업 및 비중 | 예: IT(30%) |
-| **상위구성종목** | PDF 내 상위 5개 종목명 | |
-
-## ⚠️ 주의사항
-- API 호출 제한: main.py 내부에 time.sleep(0.5)가 설정되어 있습니다. 이를 제거하거나 너무 짧게 줄이면 네이버 서버로부터 IP가 차단될 수 있으니 주의하세요.
-- 데이터 검증: 이 도구는 네이버 금융의 모바일 API 데이터를 기반으로 합니다. 실제 투자 결정 전, 운용사 홈페이지의 공식 투자설명서를 반드시 참고하세요.

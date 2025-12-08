@@ -3,3 +3,5 @@ requests
 openpyxl
 python-dotenv
 tqdm
+sqlalchemy
+psycopg2-binary
